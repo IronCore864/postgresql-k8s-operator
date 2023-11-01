@@ -57,6 +57,7 @@ from constants import (
     MONITORING_PASSWORD_KEY,
     MONITORING_USER,
     PEER,
+    POSTGRES_CONF_SAMPLE_FILE,
     POSTGRES_LOG_FILES,
     REPLICATION_PASSWORD_KEY,
     REPLICATION_USER,
@@ -725,6 +726,8 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
             )
             event.defer()
             return
+
+        self._configure_huge_pages()
 
         # Start the database service.
         self._update_pebble_layers()
@@ -1573,6 +1576,14 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
                 allocable_memory = constrained_memory
 
         return cpu_cores, allocable_memory
+
+    def _configure_huge_pages(self) -> None:
+        container = self.unit.get_container("postgresql")
+        sample_config = container.pull(POSTGRES_CONF_SAMPLE_FILE).read()
+        huge_pages_config = "huge_pages = off"
+        if huge_pages_config not in sample_config:
+            sample_config += f"{huge_pages_config}\n"
+        container.push(POSTGRES_CONF_SAMPLE_FILE, sample_config)
 
 
 if __name__ == "__main__":

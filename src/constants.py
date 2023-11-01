@@ -20,6 +20,7 @@ USER_PASSWORD_KEY = "operator-password"
 WORKLOAD_OS_GROUP = "postgres"
 WORKLOAD_OS_USER = "postgres"
 METRICS_PORT = "9187"
+POSTGRES_CONF_SAMPLE_FILE = "/usr/share/postgresql/14/postgresql.conf.sample"  # Used by initdb to create the first postgresql.conf file.
 POSTGRES_LOG_FILES = [
     "/var/log/pgbackrest/*",
     "/var/log/postgresql/patroni.log",
