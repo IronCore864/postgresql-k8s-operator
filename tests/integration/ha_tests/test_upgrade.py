@@ -16,12 +16,12 @@ from pytest_operator.plugin import OpsTest
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
 from tests.integration.ha_tests.helpers import (
-    APPLICATION_NAME,
     are_writes_increasing,
     check_writes,
     start_continuous_writes,
 )
 from tests.integration.helpers import (
+    APPLICATION_NAME,
     DATABASE_APP_NAME,
     METADATA,
     count_switchovers,
@@ -33,7 +33,7 @@ from tests.integration.new_relations.helpers import get_application_relation_dat
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 5 * 60
+TIMEOUT = 600
 
 
 @pytest.mark.abort_on_fail

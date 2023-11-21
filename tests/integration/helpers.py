@@ -32,6 +32,7 @@ from tenacity import (
 CHARM_SERIES = "jammy"
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 DATABASE_APP_NAME = METADATA["name"]
+APPLICATION_NAME = "postgresql-test-app"
 
 charm = None
 
@@ -292,21 +293,6 @@ async def deploy_and_relate_application_with_postgresql(
     )
 
     return relation.id
-
-
-async def enable_connections_logging(ops_test: OpsTest, unit_name: str) -> None:
-    """Turn on the log of all connections made to a PostgreSQL instance.
-
-    Args:
-        ops_test: The ops test framework instance
-        unit_name: The name of the unit to turn on the connection logs
-    """
-    unit_address = await get_unit_address(ops_test, unit_name)
-    requests.patch(
-        f"https://{unit_address}:8008/config",
-        json={"postgresql": {"parameters": {"log_connections": True}}},
-        verify=False,
-    )
 
 
 async def execute_query_on_unit(
