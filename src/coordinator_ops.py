@@ -79,7 +79,7 @@ from ops.charm import (
     EventSource,
     RelationChangedEvent,
 )
-from ops.framework import EventBase, Object
+from ops.framework import EventBase, Handle, Object
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ logger = logging.getLogger(__name__)
 class CoordinatorEventBase(EventBase):
     """Base event for the coordination activities."""
 
-    def __init__(self, handle: 'Handle', tag: str):
+    def __init__(self, handle: "Handle", tag: str):
         super().__init__(handle)
         self._tag = tag
 
@@ -99,13 +99,15 @@ class CoordinatorEventBase(EventBase):
 
 class CoordinatorRequestedEvent(CoordinatorEventBase):
     """Event to signal that the leader requested the units to coordinate a new activity."""
-    def __init__(self, handle: 'Handle', tag: str):
+
+    def __init__(self, handle: "Handle", tag: str):
         super().__init__(handle, tag)
 
 
 class CoordinatorApprovedEvent(CoordinatorEventBase):
     """Event to signal that all units ack'ed the coordination request and can proceed."""
-    def __init__(self, handle: 'Handle', tag: str):
+
+    def __init__(self, handle: "Handle", tag: str):
         super().__init__(handle, tag)
 
 

@@ -11,6 +11,7 @@ import botocore
 import psycopg2
 import requests
 import yaml
+from juju.model import Model
 from juju.unit import Unit
 from lightkube.core.client import Client
 from lightkube.core.exceptions import ApiError
@@ -37,7 +38,9 @@ APPLICATION_NAME = "postgresql-test-app"
 charm = None
 
 
-async def app_name(ops_test: OpsTest, application_name: str = "postgresql-k8s") -> Optional[str]:
+async def app_name(
+    ops_test: OpsTest, application_name: str = "postgresql-k8s", model: Model = None
+) -> Optional[str]:
     """Returns the name of the cluster running PostgreSQL.
 
     This is important since not all deployments of the PostgreSQL charm have the application name
@@ -45,8 +48,10 @@ async def app_name(ops_test: OpsTest, application_name: str = "postgresql-k8s") 
 
     Note: if multiple clusters are running PostgreSQL this will return the one first found.
     """
-    status = await ops_test.model.get_status()
-    for app in ops_test.model.applications:
+    if model is None:
+        model = ops_test.model
+    status = await model.get_status()
+    for app in model.applications:
         if application_name in status["applications"][app]["charm"]:
             return app
 
@@ -59,11 +64,15 @@ async def build_and_deploy(
     database_app_name: str = DATABASE_APP_NAME,
     wait_for_idle: bool = True,
     status: str = "active",
+    model: Model = None,
 ) -> None:
     """Builds the charm and deploys a specified number of units."""
+    if model is None:
+        model = ops_test.model
+
     # It is possible for users to provide their own cluster for testing. Hence, check if there
     # is a pre-existing cluster.
-    if await app_name(ops_test, database_app_name):
+    if await app_name(ops_test, database_app_name, model):
         return
 
     global charm
@@ -72,7 +81,7 @@ async def build_and_deploy(
     resources = {
         "postgresql-image": METADATA["resources"]["postgresql-image"]["upstream-source"],
     }
-    await ops_test.model.deploy(
+    await model.deploy(
         charm,
         resources=resources,
         application_name=database_app_name,
@@ -83,7 +92,7 @@ async def build_and_deploy(
     ),
     if wait_for_idle:
         # Wait until the PostgreSQL charm is successfully deployed.
-        await ops_test.model.wait_for_idle(
+        await model.wait_for_idle(
             apps=[database_app_name],
             status=status,
             raise_on_blocked=True,
