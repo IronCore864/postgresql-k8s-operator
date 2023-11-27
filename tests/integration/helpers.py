@@ -32,6 +32,7 @@ from tenacity import (
 CHARM_SERIES = "jammy"
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 DATABASE_APP_NAME = METADATA["name"]
+APPLICATION_NAME = "postgresql-test-app"
 
 charm = None
 
@@ -294,21 +295,6 @@ async def deploy_and_relate_application_with_postgresql(
     return relation.id
 
 
-async def enable_connections_logging(ops_test: OpsTest, unit_name: str) -> None:
-    """Turn on the log of all connections made to a PostgreSQL instance.
-
-    Args:
-        ops_test: The ops test framework instance
-        unit_name: The name of the unit to turn on the connection logs
-    """
-    unit_address = await get_unit_address(ops_test, unit_name)
-    requests.patch(
-        f"https://{unit_address}:8008/config",
-        json={"postgresql": {"parameters": {"log_connections": True}}},
-        verify=False,
-    )
-
-
 async def execute_query_on_unit(
     unit_address: str,
     password: str,
@@ -427,18 +413,28 @@ async def get_leader_unit(ops_test: OpsTest, app: str) -> Optional[Unit]:
     return leader_unit
 
 
+async def get_password_on_unit(
+    ops_test: OpsTest, username: str, unit: Unit, database_app_name: str = DATABASE_APP_NAME
+) -> str:
+    action = await unit.run_action("get-password", **{"username": username})
+    result = await action.wait()
+    return result.results["password"]
+
+
 async def get_password(
     ops_test: OpsTest,
     username: str = "operator",
     database_app_name: str = DATABASE_APP_NAME,
     down_unit: str = None,
+    unit_name: str = None,
 ):
     """Retrieve a user password using the action."""
     for unit in ops_test.model.applications[database_app_name].units:
-        if unit.name != down_unit:
-            action = await unit.run_action("get-password", **{"username": username})
-            result = await action.wait()
-            return result.results["password"]
+        if unit.name == down_unit:
+            continue
+
+        if pw := await get_password_on_unit(ops_test, username, unit, database_app_name):
+            return pw
 
 
 @retry(
