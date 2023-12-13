@@ -1492,7 +1492,10 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
         """Return the number of CPU cores for the current K8S node."""
         client = Client()
         node = client.get(Node, name=self._get_node_name_for_pod(), namespace=self._namespace)
-        return int(node.status.allocatable["cpu"])
+        cpu = node.status.allocatable["cpu"]
+        if cpu.endswith("m"):
+            return int(cpu[:-1]) // 1000
+        return int(cpu)
 
     def get_available_resources(self) -> Tuple[int, int]:
         """Get available CPU cores and memory (in bytes) for the container."""

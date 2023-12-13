@@ -12,6 +12,7 @@ from typing import Dict, Optional, Set, Tuple
 import kubernetes as kubernetes
 import psycopg2
 import requests
+from juju.model import Model
 from kubernetes import config
 from kubernetes.client.api import core_v1_api
 from kubernetes.stream import stream
@@ -184,10 +185,10 @@ async def is_member_isolated(
     return True
 
 
-async def check_writes(ops_test) -> int:
+async def check_writes(ops_test, extra_model: Model = None) -> int:
     """Gets the total writes from the test charm and compares to the writes from db."""
     total_expected_writes = await stop_continuous_writes(ops_test)
-    actual_writes, max_number_written = await count_writes(ops_test)
+    actual_writes, max_number_written = await count_writes(ops_test, extra_model)
     for member, count in actual_writes.items():
         assert (
             count == max_number_written[member]
@@ -263,20 +264,24 @@ def copy_file_into_pod(
 
 
 async def count_writes(
-    ops_test: OpsTest, down_unit: str = None
+    ops_test: OpsTest, down_unit: str = None, extra_model: Model = None
 ) -> Tuple[Dict[str, int], Dict[str, int]]:
     """Count the number of writes in the database."""
     app = await app_name(ops_test)
     password = await get_password(ops_test, database_app_name=app, down_unit=down_unit)
-    status = await ops_test.model.get_status()
-    for unit_name, unit in status["applications"][app]["units"].items():
-        if unit_name != down_unit:
-            cluster = get_patroni_cluster(unit["address"])
-            break
+    members = []
+    for model in [ops_test.model, extra_model]:
+        if model is None:
+            continue
+        status = await model.get_status()
+        for unit_name, unit in status["applications"][app]["units"].items():
+            if unit_name != down_unit:
+                members.extend(get_patroni_cluster(unit["address"])["members"])
+                break
 
     count = {}
     maximum = {}
-    for member in cluster["members"]:
+    for member in members:
         if member["role"] != "replica" and member["host"].split(".")[0] != (
             down_unit or ""
         ).replace("/", "-"):

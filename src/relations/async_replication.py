@@ -104,6 +104,7 @@ class PostgreSQLAsyncReplication(Object):
         for rel in self.relation_set:
             return str(self.charm.model.get_binding(rel).network.ingress_address)
         return None
+        # return self.charm.primary_endpoint
 
     def standby_endpoints(self) -> Set[str]:
         """Returns the set of IPs used by each standby unit with a /32 mask."""
