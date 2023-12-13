@@ -420,6 +420,42 @@ async def get_postgresql_parameter(ops_test: OpsTest, parameter_name: str) -> Op
             return parameter_value
 
 
+async def get_standby_leader(model: Model, application_name: str) -> str:
+    """Get the standby leader name.
+
+    Args:
+        model: the model instance.
+        application_name: the name of the application to get the value for.
+
+    Returns:
+        the name of the standby leader.
+    """
+    status = await model.get_status()
+    first_unit_ip = list(status["applications"][application_name]["units"].values())[0]["address"]
+    cluster = get_patroni_cluster(first_unit_ip)
+    for member in cluster["members"]:
+        if member["role"] == "standby_leader":
+            return member["name"]
+
+
+async def get_sync_standby(model: Model, application_name: str) -> str:
+    """Get the sync_standby name.
+
+    Args:
+        model: the model instance.
+        application_name: the name of the application to get the value for.
+
+    Returns:
+        the name of the sync standby.
+    """
+    status = await model.get_status()
+    first_unit_ip = list(status["applications"][application_name]["units"].values())[0]["address"]
+    cluster = get_patroni_cluster(first_unit_ip)
+    for member in cluster["members"]:
+        if member["role"] == "sync_standby":
+            return member["name"]
+
+
 @retry(stop=stop_after_attempt(8), wait=wait_fixed(15), reraise=True)
 async def is_connection_possible(ops_test: OpsTest, unit_name: str) -> bool:
     """Test a connection to a PostgreSQL server."""

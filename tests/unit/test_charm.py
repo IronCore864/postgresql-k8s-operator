@@ -493,7 +493,7 @@ class TestCharm(unittest.TestCase):
         _client.return_value.get.assert_called_once_with(
             res=Pod, name="postgresql-k8s-0", namespace=self.charm.model.name
         )
-        self.assertEqual(_client.return_value.apply.call_count, 2)
+        self.assertEqual(_client.return_value.apply.call_count, 3)
 
         # Test when the charm fails to get first pod info.
         _client.reset_mock()
@@ -515,7 +515,7 @@ class TestCharm(unittest.TestCase):
             _client.return_value.get.assert_called_once_with(
                 res=Pod, name="postgresql-k8s-0", namespace=self.charm.model.name
             )
-            self.assertEqual(_client.return_value.apply.call_count, 2)
+            self.assertEqual(_client.return_value.apply.call_count, 3)
 
     @patch("charm.Client")
     def test_patch_pod_labels(self, _client):

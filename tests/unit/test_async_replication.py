@@ -3,7 +3,7 @@
 # See LICENSE file for licensing details.
 
 import unittest
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import MagicMock, mock_open, patch
 
 from ops.model import Unit
 from ops.testing import Harness
@@ -81,9 +81,7 @@ fe00::2\tip6-allrouters
         relation = self.harness.model.get_relation("async-primary", rel_id)
         self.assertEqual(self.async_manager._all_units(relation), {self.charm.unit})
 
-        second_unit = Unit(
-            f"{self.charm.app}/1", None, self.harness.charm.app._backend, {}
-        )
+        second_unit = Unit(f"{self.charm.app}/1", None, self.harness.charm.app._backend, {})
         self.harness.add_relation_unit(rel_id, second_unit.name)
         # self.harness.set_planned_units(2)
         self.assertEqual(self.async_manager._all_units(relation), {self.charm.unit, second_unit})
