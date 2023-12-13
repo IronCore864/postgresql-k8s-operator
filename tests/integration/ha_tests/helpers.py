@@ -188,7 +188,7 @@ async def is_member_isolated(
 async def check_writes(ops_test, extra_model: Model = None) -> int:
     """Gets the total writes from the test charm and compares to the writes from db."""
     total_expected_writes = await stop_continuous_writes(ops_test)
-    actual_writes, max_number_written = await count_writes(ops_test, extra_model)
+    actual_writes, max_number_written = await count_writes(ops_test, extra_model=extra_model)
     for member, count in actual_writes.items():
         assert (
             count == max_number_written[member]

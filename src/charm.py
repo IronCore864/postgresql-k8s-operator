@@ -789,6 +789,7 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
         services = {
             "primary": "master",
             "replicas": "replica",
+            "async-replication": "sync-standby" if self.app.planned_units() > 1 else "master"
         }
         for service_name_suffix, role_selector in services.items():
             service = Service(
