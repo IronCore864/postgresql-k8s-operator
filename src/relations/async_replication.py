@@ -243,8 +243,9 @@ class PostgreSQLAsyncReplication(Object):
             return
         logger.info("_on_standby_changed: primary cluster is ready")
 
-        self.charm.set_secret(APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"])
-        self.charm.set_secret(APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"])
+        if self.charm.unit.is_leader():
+            self.charm.set_secret(APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"])
+            self.charm.set_secret(APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"])
 
         ################
         # Initiate restart logic
@@ -272,6 +273,12 @@ class PostgreSQLAsyncReplication(Object):
         for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
             with attempt:
                 self.container.stop(self.charm._postgresql_service)
+        if self.charm.unit.is_leader():
+            # Store current data in a ZIP file, clean folder and generate configuration.
+            self.container.exec(
+                f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()).wait_output()
+            self.container.exec("rm -r /var/lib/postgresql/data/pgdata".split()).wait_output()
+            self.charm._create_pgdata(self.container)
         self.restart_coordinator.acknowledge(event)
 
     def _on_coordination_approval(self, event):
@@ -286,11 +293,6 @@ class PostgreSQLAsyncReplication(Object):
                 name=f"patroni-{self.charm._name}-config",
                 namespace=self.charm._namespace,
             )
-
-        # Store current data in a ZIP file, clean folder and generate configuration.
-        self.container.exec(f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()).wait_output()
-        self.container.exec("rm -r /var/lib/postgresql/data/pgdata".split()).wait_output()
-        self.charm._create_pgdata(self.container)
 
         self.charm.update_config()
         logger.info("_on_standby_changed: configuration done, waiting for restart of the service")
