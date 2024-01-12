@@ -11,6 +11,7 @@
 
 import json
 import logging
+from datetime import datetime
 from typing import Dict, Set
 
 from lightkube import Client
@@ -23,7 +24,9 @@ from ops.framework import Object
 from ops.model import (
     Unit,
 )
+from tenacity import Retrying, stop_after_attempt, wait_fixed
 
+from constants import APP_SCOPE, USER_PASSWORD_KEY, REPLICATION_PASSWORD_KEY
 from coordinator_ops import CoordinatedOpsManager
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,8 @@ def _get_pod_ip():
     with open("/etc/hostname") as f:
         hostname = f.read().replace("\n", "")
     line = [ln for ln in hosts.split("\n") if ln.find(hostname) >= 0][0]
+    logger.error(f"Found line: {line}")
+    logger.error(f"Found IP: {line.split()[0]}")
     return line.split("\t")[0]
 
 
@@ -164,7 +169,9 @@ class PostgreSQLAsyncReplication(Object):
             if "primary-cluster-ready" in rel.data[self.charm.unit]:
                 del rel.data[self.charm.unit]["primary-cluster-ready"]
 
-        self.container.stop(self.charm._postgresql_service)
+        for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
+            with attempt:
+                self.container.stop(self.charm._postgresql_service)
         self.charm.update_config()
         self.container.start(self.charm._postgresql_service)
 
@@ -197,7 +204,9 @@ class PostgreSQLAsyncReplication(Object):
 
         # This unit is the leader, generate  a new configuration and leave.
         # There is nothing to do for the leader.
-        self.container.stop(self.charm._postgresql_service)
+        for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
+            with attempt:
+                self.container.stop(self.charm._postgresql_service)
         self.charm.update_config()
         self.container.start(self.charm._postgresql_service)
 
@@ -225,13 +234,17 @@ class PostgreSQLAsyncReplication(Object):
             return
         logger.info("_on_standby_changed: pod-address published in own replica databag")
 
-        if not self.get_primary_data():
+        primary_data = self.get_primary_data()
+        if not primary_data:
             # We've made thus far.
             # However, the get_primary_data will return != None ONLY if the primary cluster
             # is ready and configured. Until then, we wait.
             event.defer()
             return
         logger.info("_on_standby_changed: primary cluster is ready")
+
+        self.charm.set_secret(APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"])
+        self.charm.set_secret(APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"])
 
         ################
         # Initiate restart logic
@@ -256,7 +269,9 @@ class PostgreSQLAsyncReplication(Object):
         # We need all replicas to be stopped, so we can remove the patroni-postgresql-k8s
         # service from Kubernetes and not getting it recreated!
         # We will restart the it once the cluster is ready.
-        self.container.stop(self.charm._postgresql_service)
+        for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
+            with attempt:
+                self.container.stop(self.charm._postgresql_service)
         self.restart_coordinator.acknowledge(event)
 
     def _on_coordination_approval(self, event):
@@ -272,7 +287,8 @@ class PostgreSQLAsyncReplication(Object):
                 namespace=self.charm._namespace,
             )
 
-        # Clean folder and generate configuration.
+        # Store current data in a ZIP file, clean folder and generate configuration.
+        self.container.exec(f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()).wait_output()
         self.container.exec("rm -r /var/lib/postgresql/data/pgdata".split()).wait_output()
         self.charm._create_pgdata(self.container)
 
@@ -337,6 +353,7 @@ class PostgreSQLAsyncReplication(Object):
         # TODO
         primary_relation.data[self.charm.unit]["elected"] = json.dumps(
             {
+                # "endpoint": self.charm.async_replication_endpoint,
                 "endpoint": self.endpoint,
                 "replication-password": self.charm._patroni._replication_password,
                 "superuser-password": self.charm._patroni._superuser_password,

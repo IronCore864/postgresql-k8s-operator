@@ -336,6 +336,11 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
         """Returns the endpoint of the replicas instances' service."""
         return self._build_service_name("replicas")
 
+    @property
+    def async_replication_endpoint(self) -> str:
+        """Returns the endpoint of the async replication instances' service."""
+        return self._build_service_name("async-replication")
+
     def _build_service_name(self, service: str) -> str:
         """Build a full k8s service name based on the service name."""
         return f"{self._name}-{service}.{self._namespace}.svc.cluster.local"

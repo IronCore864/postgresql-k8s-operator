@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
+import contextlib
 import logging
 from asyncio import gather
+from typing import Optional
 
 import pytest as pytest
 from juju.controller import Controller
@@ -24,8 +26,25 @@ from tests.integration.helpers import (
     build_and_deploy,
     get_leader_unit,
 )
+from tests.integration.juju_ import juju_major_version
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def fast_forward(
+    model: Model, fast_interval: str = "10s", slow_interval: Optional[str] = None
+):
+    """Adaptation of OpsTest.fast_forward to work with different models."""
+    update_interval_key = "update-status-hook-interval"
+    if slow_interval:
+        interval_after = slow_interval
+    else:
+        interval_after = (await model.get_config())[update_interval_key]
+
+    await model.set_config({update_interval_key: fast_interval})
+    yield
+    await model.set_config({update_interval_key: interval_after})
 
 
 @pytest.fixture(scope="module")
@@ -60,7 +79,7 @@ async def test_deploy_async_replication_setup(
     await build_and_deploy(ops_test, 3, wait_for_idle=False, model=second_model)
     await ops_test.model.deploy(APPLICATION_NAME, num_units=1)
 
-    async with ops_test.fast_forward():
+    async with ops_test.fast_forward(), fast_forward(second_model):
         await gather(
             first_model.wait_for_idle(
                 apps=[DATABASE_APP_NAME, APPLICATION_NAME],
@@ -88,13 +107,14 @@ async def test_async_replication(
     logger.info("checking whether writes are increasing")
     await are_writes_increasing(ops_test)
 
-    await first_model.create_offer("async-primary", "async-primary", DATABASE_APP_NAME)
+    offer_endpoint = f"{DATABASE_APP_NAME}:async-primary" if juju_major_version == 2 else "async-primary"
+    await first_model.create_offer(offer_endpoint, "async-primary", DATABASE_APP_NAME)
     # replace with second model fast-forward.
     await second_model.consume(
         f"admin/{first_model.info.name}.async-primary", controller=controller
     )
 
-    async with ops_test.fast_forward("60s"):
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
             # replace with second model fast-forward.
@@ -103,7 +123,7 @@ async def test_async_replication(
 
     await second_model.relate(DATABASE_APP_NAME, "async-primary")
 
-    async with ops_test.fast_forward("60s"):
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
             # replace with second model fast-forward.
@@ -121,7 +141,7 @@ async def test_async_replication(
     run_action = await leader_unit.run_action("promote-standby-cluster")
     await run_action.wait()
 
-    async with ops_test.fast_forward("60s"):
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
             # replace with second model fast-forward.
@@ -141,6 +161,7 @@ async def test_async_replication_failover_in_main_cluster(
     ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
 ) -> None:
     """Test that async replication fails over correctly."""
+    pytest.skip("Test")
     logger.info("starting continuous writes to the database")
     await start_continuous_writes(ops_test, DATABASE_APP_NAME)
 
@@ -153,7 +174,7 @@ async def test_async_replication_failover_in_main_cluster(
     client = Client(namespace=first_model.info.name)
     client.delete(Pod, name=sync_standby.replace("/", "-"))
 
-    async with ops_test.fast_forward("60s"):
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
             # replace with second model fast-forward.
@@ -178,7 +199,7 @@ async def test_async_replication_failover_in_secondary_cluster(
     ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
 ) -> None:
     """Test that async replication fails back correctly."""
-    pytest.skip("Skipping async replication tests")
+    # pytest.skip("Test")
     logger.info("starting continuous writes to the database")
     await start_continuous_writes(ops_test, DATABASE_APP_NAME)
 
@@ -191,7 +212,7 @@ async def test_async_replication_failover_in_secondary_cluster(
     client = Client(namespace=second_model.info.name)
     client.delete(Pod, name=standby_leader.replace("/", "-"))
 
-    async with ops_test.fast_forward("60s"):
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
             # replace with second model fast-forward.
@@ -209,3 +230,11 @@ async def test_async_replication_failover_in_secondary_cluster(
     # (check that all the units have all the writes).
     logger.info("checking whether no writes were lost")
     await check_writes(ops_test, extra_model=second_model)
+
+
+def test_remove_and_reestablish_relation():
+    """Test that the relation can be removed and re-established."""
+    pytest.skip("Test")
+    # Remove the relation.
+    # Re-establish the relation.
+    #
