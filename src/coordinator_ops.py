@@ -150,10 +150,10 @@ class CoordinatedOpsManager(Object):
         """
         logger.info("coordinate: starting")
         if self.charm.unit.is_leader():
-            counter = (
+            counter = int(
                 self.model.get_relation(self.relation)
                 .data[self.app]
-                .get(f"_{self.name}_coord_counter", 0)
+                .get(f"_{self.name}_coord_counter", "0")
             )
             self.model.get_relation(self.relation).data[self.app][
                 f"_{self.name}_coord_counter"
