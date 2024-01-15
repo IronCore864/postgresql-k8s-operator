@@ -190,6 +190,7 @@ async def check_writes(ops_test, extra_model: Model = None) -> int:
     total_expected_writes = await stop_continuous_writes(ops_test)
     actual_writes, max_number_written = await count_writes(ops_test, extra_model=extra_model)
     for member, count in actual_writes.items():
+        print(f"checking writes for {member}: {count} (should be {max_number_written[member]})")
         assert (
             count == max_number_written[member]
         ), f"{member}: writes to the db were missed: count of actual writes different from the max number written."

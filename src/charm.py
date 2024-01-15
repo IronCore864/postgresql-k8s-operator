@@ -364,6 +364,18 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
         endpoints_to_remove = list(set(old) - set(current))
         return endpoints_to_remove
 
+    def get_unit_ip(self, unit: Unit) -> Optional[str]:
+        """Get the IP address of a specific unit."""
+        # Check if host is current host.
+        if unit == self.unit:
+            return str(self.model.get_binding(PEER).network.bind_address)
+        # Check if host is a peer.
+        elif unit in self._peers.data:
+            return str(self._peers.data[unit].get("private-address"))
+        # Return None if the unit is not a peer neither the current unit.
+        else:
+            return None
+
     def _on_peer_relation_departed(self, event: RelationDepartedEvent) -> None:
         """The leader removes the departing units from the list of cluster members."""
         # Allow leader to update endpoints if it isn't leaving.

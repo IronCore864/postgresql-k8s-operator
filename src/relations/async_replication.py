@@ -26,7 +26,7 @@ from ops.model import (
 )
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
-from constants import APP_SCOPE, USER_PASSWORD_KEY, REPLICATION_PASSWORD_KEY
+from constants import APP_SCOPE, USER_PASSWORD_KEY, REPLICATION_PASSWORD_KEY, PEER
 from coordinator_ops import CoordinatedOpsManager
 
 logger = logging.getLogger(__name__)
@@ -106,9 +106,21 @@ class PostgreSQLAsyncReplication(Object):
     @property
     def endpoint(self) -> str:
         """Assumes the endpoint is the same, disregard if we are a primary or standby cluster."""
-        for rel in self.relation_set:
-            return str(self.charm.model.get_binding(rel).network.ingress_address)
-        return None
+        sync_standby_names = self.charm._patroni.get_sync_standby_names()
+        if len(sync_standby_names) > 0:
+            # unit_name = sync_standby_names[0].split("-")
+            # unit_name = "-".join(unit_name[:-2]) + '/' + unit_name[-1]
+            # unit_name = self.model.get_unit("/".join(sync_standby_names[0].rsplit("-", 1)))
+            unit = self.model.get_unit(sync_standby_names[0])
+            logger.error(f"Found unit: {unit}")
+            logger.error(self.charm.get_unit_ip(unit))
+            return self.charm.get_unit_ip(unit)
+        else:
+            logger.error(self.charm.get_unit_ip(self.charm.unit))
+            return self.charm.get_unit_ip(self.charm.unit)
+        # for rel in self.relation_set:
+        #     return str(self.charm.model.get_binding(rel).network.ingress_address)
+        # return None
         # return self.charm.primary_endpoint
 
     def standby_endpoints(self) -> Set[str]:

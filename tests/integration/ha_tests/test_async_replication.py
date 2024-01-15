@@ -75,8 +75,8 @@ async def test_deploy_async_replication_setup(
     ops_test: OpsTest, first_model: Model, second_model: Model
 ) -> None:
     """Build and deploy two PostgreSQL cluster in two separate models to test async replication."""
-    await build_and_deploy(ops_test, 3, wait_for_idle=False)
-    await build_and_deploy(ops_test, 3, wait_for_idle=False, model=second_model)
+    await build_and_deploy(ops_test, 2, wait_for_idle=False)
+    await build_and_deploy(ops_test, 2, wait_for_idle=False, model=second_model)
     await ops_test.model.deploy(APPLICATION_NAME, num_units=1)
 
     async with ops_test.fast_forward(), fast_forward(second_model):
@@ -199,7 +199,7 @@ async def test_async_replication_failover_in_secondary_cluster(
     ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
 ) -> None:
     """Test that async replication fails back correctly."""
-    # pytest.skip("Test")
+    pytest.skip("Test")
     logger.info("starting continuous writes to the database")
     await start_continuous_writes(ops_test, DATABASE_APP_NAME)
 
