@@ -12,7 +12,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Set
+from typing import Dict, Set, Tuple, Optional
 
 from lightkube import Client
 from lightkube.resources.core_v1 import Service
@@ -22,11 +22,12 @@ from ops.charm import (
 )
 from ops.framework import Object
 from ops.model import (
-    Unit,
+    Unit, WaitingStatus,
 )
+from ops.pebble import ChangeError
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
-from constants import APP_SCOPE, USER_PASSWORD_KEY, REPLICATION_PASSWORD_KEY, PEER
+from constants import APP_SCOPE, USER_PASSWORD_KEY, REPLICATION_PASSWORD_KEY, PEER, WORKLOAD_OS_USER, WORKLOAD_OS_GROUP
 from coordinator_ops import CoordinatedOpsManager
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,12 @@ class PostgreSQLAsyncReplication(Object):
             self.charm.set_secret(APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"])
             self.charm.set_secret(APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"])
 
+        if "system-id" not in replica_relation.data[self.charm.unit]:
+            system_identifier, error = self.get_system_identifier()
+            if error is not None:
+                raise Exception(f"Failed to get system identifier: {error}")
+            replica_relation.data[self.charm.unit]["system-id"] = system_identifier
+
         ################
         # Initiate restart logic
         ################
@@ -285,12 +292,29 @@ class PostgreSQLAsyncReplication(Object):
         for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
             with attempt:
                 self.container.stop(self.charm._postgresql_service)
-        if self.charm.unit.is_leader():
-            # Store current data in a ZIP file, clean folder and generate configuration.
-            self.container.exec(
-                f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()).wait_output()
-            self.container.exec("rm -r /var/lib/postgresql/data/pgdata".split()).wait_output()
-            self.charm._create_pgdata(self.container)
+
+        replica_relation = self.model.get_relation(ASYNC_REPLICA_RELATION)
+        logger.error(f"relation data: {replica_relation.data}")
+        for unit in replica_relation.units:
+            logger.error(f'Replica relation: {replica_relation.data[unit]}')
+            if "elected" not in replica_relation.data[unit]:
+                logger.error(f"skipping {unit} 1")
+                continue
+            elected_data = json.loads(replica_relation.data[unit]["elected"])
+            if "system-id" not in elected_data:
+                logger.error(f"skipping {unit} 2")
+                continue
+            logger.error(f'system id: {replica_relation.data[self.charm.unit]["system-id"]}')
+            if replica_relation.data[self.charm.unit]["system-id"] != elected_data["system-id"]:
+                if self.charm.unit.is_leader():
+                    # Store current data in a ZIP file, clean folder and generate configuration.
+                    logger.error("Creating backup of pgdata folder")
+                    self.container.exec(
+                        f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()).wait_output()
+                logger.error("Removing and recreating pgdata folder")
+                self.container.exec("rm -r /var/lib/postgresql/data/pgdata".split()).wait_output()
+                self.charm._create_pgdata(self.container)
+                break
         self.restart_coordinator.acknowledge(event)
 
     def _on_coordination_approval(self, event):
@@ -305,16 +329,16 @@ class PostgreSQLAsyncReplication(Object):
                 name=f"patroni-{self.charm._name}-config",
                 namespace=self.charm._namespace,
             )
+        elif not self.charm._patroni.primary_endpoint_ready:
+            self.charm.unit.status = WaitingStatus("waiting for primary to be ready")
+            event.defer()
+            return
 
         self.charm.update_config()
         logger.info("_on_standby_changed: configuration done, waiting for restart of the service")
 
         # We are ready to restart the service now: all peers have configured themselves.
         self.container.start(self.charm._postgresql_service)
-
-    def _get_primary_candidates(self):
-        rel = self.model.get_relation(ASYNC_PRIMARY_RELATION)
-        return rel.units if rel else []
 
     def _check_if_primary_already_selected(self) -> Unit:
         """Returns the unit if a primary is present."""
@@ -363,6 +387,11 @@ class PostgreSQLAsyncReplication(Object):
             event.fail(f"Cannot promote - {unit.name} is already primary: demote it first")
             return
 
+        system_identifier, error = self.get_system_identifier()
+        if error is not None:
+            event.fail(f"Failed to get system identifier: {error}")
+            return
+
         # If this is a standby-leader, then execute switchover logic
         # TODO
         primary_relation.data[self.charm.unit]["elected"] = json.dumps(
@@ -371,6 +400,7 @@ class PostgreSQLAsyncReplication(Object):
                 "endpoint": self.endpoint,
                 "replication-password": self.charm._patroni._replication_password,
                 "superuser-password": self.charm._patroni._superuser_password,
+                "system-id": system_identifier,
             }
         )
 
@@ -381,3 +411,24 @@ class PostgreSQLAsyncReplication(Object):
             return
         del replica_relation.data[self.charm.unit]["pod-address"]
         # event.set_result()
+
+    def get_system_identifier(self) -> Tuple[Optional[str], Optional[str]]:
+        try:
+            system_identifier, error = self.container.exec(
+                [
+                    f'/usr/lib/postgresql/{self.charm._patroni.rock_postgresql_version.split(".")[0]}/bin/pg_controldata',
+                    "/var/lib/postgresql/data/pgdata",
+                ],
+                user=WORKLOAD_OS_USER,
+                group=WORKLOAD_OS_GROUP,
+            ).wait_output()
+        except ChangeError as e:
+            return None, str(e)
+        if error != "":
+            return None, error
+        system_identifier = [
+            line
+            for line in system_identifier.splitlines()
+            if "Database system identifier" in line
+        ][0].split(" ")[-1]
+        return system_identifier, None

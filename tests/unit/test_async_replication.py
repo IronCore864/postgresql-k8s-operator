@@ -104,13 +104,6 @@ fe00::2\tip6-allrouters
     def test_on_coordination_approval(self):
         pass
 
-    def test_get_primary_candidates(self):
-        # Test when the relation is not set yet.
-        self.assertEqual(self.async_manager._get_primary_candidates(), [])
-
-        # Test when the async primary relation is set.
-        self.harness.add_relation("async-primary", self.charm.app.name)
-
     def test_check_if_primary_already_selected(self):
         pass
 
