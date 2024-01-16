@@ -263,17 +263,20 @@ class PostgreSQLAsyncReplication(Object):
             return
         logger.info("_on_standby_changed: primary cluster is ready")
 
-        if self.charm.unit.is_leader():
-            self.charm.set_secret(APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"])
-            self.charm.set_secret(
-                APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"]
-            )
-
         if "system-id" not in replica_relation.data[self.charm.unit]:
             system_identifier, error = self.get_system_identifier()
             if error is not None:
                 raise Exception(f"Failed to get system identifier: {error}")
             replica_relation.data[self.charm.unit]["system-id"] = system_identifier
+
+            if self.charm.unit.is_leader():
+                self.charm.set_secret(
+                    APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"]
+                )
+                self.charm.set_secret(
+                    APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"]
+                )
+                del self.charm._peers.data[self.charm.app]["cluster_initialised"]
 
         ################
         # Initiate restart logic
@@ -349,6 +352,8 @@ class PostgreSQLAsyncReplication(Object):
 
         # We are ready to restart the service now: all peers have configured themselves.
         self.container.start(self.charm._postgresql_service)
+        if self.charm.unit.is_leader():
+            self.charm._peers.data[self.charm.app]["cluster_initialised"] = "True"
 
     def _check_if_primary_already_selected(self) -> Unit:
         """Returns the unit if a primary is present."""

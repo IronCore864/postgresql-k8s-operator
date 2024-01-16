@@ -433,9 +433,13 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
 
         # Restart the workload if it's stuck on the starting state after a timeline divergence
         # due to a backup that was restored.
-        if not self.is_primary and (
-            self._patroni.member_replication_lag == "unknown"
-            or int(self._patroni.member_replication_lag) > 1000
+        if (
+            not self.is_primary
+            and not self.is_standby_leader
+            and (
+                self._patroni.member_replication_lag == "unknown"
+                or int(self._patroni.member_replication_lag) > 1000
+            )
         ):
             self._patroni.reinitialize_postgresql()
             logger.debug("Deferring on_peer_relation_changed: reinitialising replica")
@@ -1135,6 +1139,11 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
     def is_primary(self) -> bool:
         """Return whether this unit is the primary instance."""
         return self._unit == self._patroni.get_primary(unit_name_pattern=True)
+
+    @property
+    def is_standby_leader(self) -> bool:
+        """Return whether this unit is the standby leader instance."""
+        return self._unit == self._patroni.get_standby_leader(unit_name_pattern=True)
 
     @property
     def is_tls_enabled(self) -> bool:
