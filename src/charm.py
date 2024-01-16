@@ -42,6 +42,7 @@ from ops.model import (
     MaintenanceStatus,
     Relation,
     Unit,
+    UnknownStatus,
     WaitingStatus,
 )
 from ops.pebble import ChangeError, Layer, PathError, ProtocolError, ServiceStatus
@@ -517,12 +518,14 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
                 continue
             extension = plugins_exception.get(extension, extension)
             extensions[extension] = enable
-        self.unit.status = WaitingStatus("Updating extensions")
+        if not isinstance(original_status, UnknownStatus):
+            self.unit.status = WaitingStatus("Updating extensions")
         try:
             self.postgresql.enable_disable_extensions(extensions, database)
         except PostgreSQLEnableDisableExtensionError as e:
             logger.exception("failed to change plugins: %s", str(e))
-        self.unit.status = original_status
+        if not isinstance(original_status, UnknownStatus):
+            self.unit.status = original_status
 
     def _add_members(self, event) -> None:
         """Add new cluster members.
@@ -622,6 +625,23 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
             self.set_secret(APP_SCOPE, MONITORING_PASSWORD_KEY, new_password())
 
         self._cleanup_old_cluster_resources()
+        client = Client()
+        try:
+            endpoint = client.get(Endpoints, name=self.cluster_name, namespace=self._namespace)
+            if "leader" not in endpoint.metadata.annotations:
+                patch = {
+                    "metadata": {
+                        "annotations": {"leader": self._unit_name_to_pod_name(self._unit)}
+                    }
+                }
+                client.patch(
+                    Endpoints, name=self.cluster_name, namespace=self._namespace, obj=patch
+                )
+                self.app_peer_data.pop("cluster_initialised", None)
+        except ApiError as e:
+            # Ignore the error only when the resource doesn't exist.
+            if e.status.code != 404:
+                raise e
 
         # Create resources and add labels needed for replication.
         try:
@@ -951,6 +971,11 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
             logger.error(f"failed to get primary with error {e}")
 
     def _on_stop(self, _):
+        # Remove data from the drive when scaling down to zero to prevent
+        # the cluster from getting stuck when scaling back up.
+        if self.app.planned_units() == 0:
+            self.unit_peer_data.clear()
+
         # Patch the services to remove them when the StatefulSet is deleted
         # (i.e. application is removed).
         try:
@@ -1333,6 +1358,13 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
     def update_config(self, is_creating_backup: bool = False) -> bool:
         """Updates Patroni config file based on the existence of the TLS files."""
         # Retrieve PostgreSQL parameters.
+        if (
+            self.model.config.get("profile-limit-memory") is not None
+            and self.model.config.get("profile_limit_memory") is not None
+        ):
+            raise ValueError(
+                "Both profile-limit-memory and profile_limit_memory are set. Please use only one of them."
+            )
         if self.config.profile_limit_memory:
             limit_memory = self.config.profile_limit_memory * 10**6
         else:
@@ -1371,11 +1403,11 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
         if not is_creating_backup:
             self._validate_config_options()
 
-        self._patroni.update_parameter_controller_by_patroni(
-            "max_connections", max(4 * available_cpu_cores, 100)
-        )
-        self._patroni.update_parameter_controller_by_patroni(
-            "max_prepared_transactions", self.config.memory_max_prepared_transactions
+        self._patroni.bulk_update_parameters_controller_by_patroni(
+            {
+                "max_connections": max(4 * available_cpu_cores, 100),
+                "max_prepared_transactions": self.config.memory_max_prepared_transactions,
+            }
         )
 
         restart_postgresql = self.is_tls_enabled != self.postgresql.is_tls_enabled()
@@ -1534,6 +1566,15 @@ class PostgresqlOperatorCharm(TypedCharmBase[CharmConfig]):
                 allocable_memory = constrained_memory
 
         return cpu_cores, allocable_memory
+
+    @property
+    def client_relations(self) -> List[Relation]:
+        """Return the list of established client relations."""
+        relations = []
+        for relation_name in ["database", "db", "db-admin"]:
+            for relation in self.model.relations.get(relation_name, []):
+                relations.append(relation)
+        return relations
 
 
 if __name__ == "__main__":

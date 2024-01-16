@@ -40,6 +40,7 @@ class TestCharm(unittest.TestCase):
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
         self.charm = self.harness.charm
+        self._cluster_name = f"patroni-{self.charm.app.name}"
         self._context = {
             "namespace": self.harness.model.name,
             "app_name": self.harness.model.app.name,
@@ -51,27 +52,75 @@ class TestCharm(unittest.TestCase):
     def use_caplog(self, caplog):
         self._caplog = caplog
 
+    @patch("charm.PostgresqlOperatorCharm._add_members")
+    @patch("charm.Client")
     @patch("charm.new_password", return_value="sekr1t")
     @patch("charm.PostgresqlOperatorCharm.get_secret", return_value=None)
     @patch("charm.PostgresqlOperatorCharm.set_secret")
     @patch("charm.Patroni.reload_patroni_configuration")
     @patch("charm.PostgresqlOperatorCharm._patch_pod_labels")
     @patch("charm.PostgresqlOperatorCharm._create_services")
-    def test_on_leader_elected(self, _, __, ___, _set_secret, _get_secret, _____):
-        # Check that a new password was generated on leader election.
+    def test_on_leader_elected(self, _, __, ___, _set_secret, _get_secret, _____, _client, ______):
+        # Check that a new password was generated on leader election and nothing is done
+        # because the "leader" key is present in the endpoint annotations due to a scale
+        # down to zero units.
+        with self.harness.hooks_disabled():
+            self.harness.update_relation_data(
+                self.rel_id, self.charm.app.name, {"cluster_initialised": "True"}
+            )
+        _client.return_value.get.return_value = MagicMock(
+            metadata=MagicMock(annotations=["leader"])
+        )
+        _client.return_value.list.side_effect = [
+            [MagicMock(metadata=MagicMock(name="fakeName1", namespace="fakeNamespace"))],
+            [MagicMock(metadata=MagicMock(name="fakeName2", namespace="fakeNamespace"))],
+        ]
         self.harness.set_leader()
         assert _set_secret.call_count == 4
         _set_secret.assert_any_call("app", "operator-password", "sekr1t")
         _set_secret.assert_any_call("app", "replication-password", "sekr1t")
         _set_secret.assert_any_call("app", "rewind-password", "sekr1t")
         _set_secret.assert_any_call("app", "monitoring-password", "sekr1t")
+        _client.return_value.get.assert_called_once_with(
+            Endpoints, name=self._cluster_name, namespace=self.charm.model.name
+        )
+        _client.return_value.patch.assert_not_called()
+        self.assertIn(
+            "cluster_initialised", self.harness.get_relation_data(self.rel_id, self.charm.app)
+        )
 
-        # Trigger a new leader election and check that the password is still the same.
+        # Trigger a new leader election and check that the password is still the same, and that the charm
+        # fixes the missing "leader" key in the endpoint annotations.
+        _client.reset_mock()
+        _client.return_value.get.return_value = MagicMock(metadata=MagicMock(annotations=[]))
         _set_secret.reset_mock()
         _get_secret.return_value = "test"
         self.harness.set_leader(False)
         self.harness.set_leader()
         assert _set_secret.call_count == 0
+        _client.return_value.get.assert_called_once_with(
+            Endpoints, name=self._cluster_name, namespace=self.charm.model.name
+        )
+        _client.return_value.patch.assert_called_once_with(
+            Endpoints,
+            name=self._cluster_name,
+            namespace=self.charm.model.name,
+            obj={"metadata": {"annotations": {"leader": "postgresql-k8s-0"}}},
+        )
+        self.assertNotIn(
+            "cluster_initialised", self.harness.get_relation_data(self.rel_id, self.charm.app)
+        )
+
+        # Test a failure in fixing the "leader" key in the endpoint annotations.
+        _client.return_value.patch.side_effect = _FakeApiError
+        with self.assertRaises(_FakeApiError):
+            self.harness.set_leader(False)
+            self.harness.set_leader()
+
+        # Test no failure if the resource doesn't exist.
+        _client.return_value.patch.side_effect = _FakeApiError(404)
+        self.harness.set_leader(False)
+        self.harness.set_leader()
 
     @patch("charm.Patroni.rock_postgresql_version", new_callable=PropertyMock)
     @patch("charm.Patroni.primary_endpoint_ready", new_callable=PropertyMock)
@@ -185,6 +234,8 @@ class TestCharm(unittest.TestCase):
 
     @pytest.mark.usefixtures("only_with_juju_secrets")
     def test_on_get_password_secrets(self):
+        self.harness.set_leader()
+
         # Create a mock event and set passwords in peer relation data.
         mock_event = MagicMock(params={})
         self.harness.charm.set_secret("app", "operator-password", "test-password")
@@ -653,28 +704,42 @@ class TestCharm(unittest.TestCase):
     @patch("charm.Client")
     def test_on_stop(self, _client):
         # Test a successful run of the hook.
-        with self.assertNoLogs("charm", "ERROR"):
-            _client.return_value.get.return_value = MagicMock(
-                metadata=MagicMock(ownerReferences="fakeOwnerReferences")
-            )
-            _client.return_value.list.side_effect = [
-                [MagicMock(metadata=MagicMock(name="fakeName1", namespace="fakeNamespace"))],
-                [MagicMock(metadata=MagicMock(name="fakeName2", namespace="fakeNamespace"))],
-            ]
-            self.charm.on.stop.emit()
-            _client.return_value.get.assert_called_once_with(
-                res=Pod, name="postgresql-k8s-0", namespace=self.charm.model.name
-            )
-            for kind in [Endpoints, Service]:
-                _client.return_value.list.assert_any_call(
-                    kind,
-                    namespace=self.charm.model.name,
-                    labels={"app.juju.is/created-by": self.charm.app.name},
+        for planned_units, relation_data in {
+            0: {},
+            1: {"some-relation-data": "some-value"},
+        }.items():
+            self.harness.set_planned_units(planned_units)
+            with self.harness.hooks_disabled():
+                self.harness.update_relation_data(
+                    self.rel_id,
+                    self.charm.unit.name,
+                    {"some-relation-data": "some-value"},
                 )
-            self.assertEqual(_client.return_value.apply.call_count, 2)
+            with self.assertNoLogs("charm", "ERROR"):
+                _client.return_value.get.return_value = MagicMock(
+                    metadata=MagicMock(ownerReferences="fakeOwnerReferences")
+                )
+                _client.return_value.list.side_effect = [
+                    [MagicMock(metadata=MagicMock(name="fakeName1", namespace="fakeNamespace"))],
+                    [MagicMock(metadata=MagicMock(name="fakeName2", namespace="fakeNamespace"))],
+                ]
+                self.charm.on.stop.emit()
+                _client.return_value.get.assert_called_once_with(
+                    res=Pod, name="postgresql-k8s-0", namespace=self.charm.model.name
+                )
+                for kind in [Endpoints, Service]:
+                    _client.return_value.list.assert_any_call(
+                        kind,
+                        namespace=self.charm.model.name,
+                        labels={"app.juju.is/created-by": self.charm.app.name},
+                    )
+                self.assertEqual(_client.return_value.apply.call_count, 2)
+                self.assertEqual(
+                    self.harness.get_relation_data(self.rel_id, self.charm.unit), relation_data
+                )
+                _client.reset_mock()
 
         # Test when the charm fails to get first pod info.
-        _client.reset_mock()
         _client.return_value.get.side_effect = _FakeApiError
         with self.assertLogs("charm", "ERROR") as logs:
             self.charm.on.stop.emit()
@@ -716,6 +781,21 @@ class TestCharm(unittest.TestCase):
             self.assertEqual(_client.return_value.apply.call_count, 2)
             self.assertIn("failed to patch k8s MagicMock", "".join(logs.output))
 
+    def test_client_relations(self):
+        # Test when the charm has no relations.
+        self.assertEqual(self.charm.client_relations, [])
+
+        # Test when the charm has some relations.
+        self.harness.add_relation("database", "application")
+        self.harness.add_relation("db", "legacy-application")
+        self.harness.add_relation("db-admin", "legacy-admin-application")
+        database_relation = self.harness.model.get_relation("database")
+        db_relation = self.harness.model.get_relation("db")
+        db_admin_relation = self.harness.model.get_relation("db-admin")
+        self.assertEqual(
+            self.charm.client_relations, [database_relation, db_relation, db_admin_relation]
+        )
+
     @parameterized.expand([("app"), ("unit")])
     @pytest.mark.usefixtures("only_with_juju_secrets")
     def test_set_secret_returning_secret_label(self, scope):
@@ -725,7 +805,8 @@ class TestCharm(unittest.TestCase):
     @parameterized.expand([("app"), ("unit")])
     @pytest.mark.usefixtures("only_with_juju_secrets")
     def test_set_reset_new_secret(self, scope):
-        """NOTE: currently ops.testing seems to allow for non-leader to set secrets too!"""
+        self.harness.set_leader()
+
         # Getting current password
         self.harness.charm.set_secret(scope, "new-secret", "bla")
         assert self.harness.charm.get_secret(scope, "new-secret") == "bla"
@@ -791,7 +872,8 @@ class TestCharm(unittest.TestCase):
     @pytest.mark.usefixtures("only_with_juju_secrets")
     @pytest.mark.usefixtures("use_caplog")
     def test_delete_existing_password_secrets(self):
-        """NOTE: currently ops.testing seems to allow for non-leader to remove secrets too!"""
+        self.harness.set_leader()
+
         assert self.harness.charm.set_secret("app", "replication", "somepw")
         self.harness.charm.remove_secret("app", "replication")
         assert self.harness.charm.get_secret("app", "replication") is None
@@ -838,3 +920,74 @@ class TestCharm(unittest.TestCase):
         secret_label = self.harness.charm.set_secret(scope, "my-secret", "blablabla")
         assert self.harness.charm.model.get_secret(label=secret_label)
         assert self.harness.charm.get_secret(scope, "my-secret") == "blablabla"
+
+    @patch(
+        "charm.PostgresqlOperatorCharm._is_workload_running",
+        new_callable=PropertyMock(return_value=False),
+    )
+    @patch(
+        "upgrade.PostgreSQLUpgrade.is_no_sync_member",
+        new_callable=PropertyMock(return_value=False),
+    )
+    @patch("charm.Patroni.render_patroni_yml_file")
+    def test_update_config(
+        self, _render_patroni_yml_file, _is_no_sync_member, _is_workload_running
+    ):
+        # Test when no config option is changed.
+        parameters = {
+            "synchronous_commit": "on",
+            "default_text_search_config": "pg_catalog.simple",
+            "password_encryption": "scram-sha-256",
+            "log_connections": False,
+            "log_disconnections": False,
+            "log_lock_waits": False,
+            "log_min_duration_statement": -1,
+            "maintenance_work_mem": 65536,
+            "max_prepared_transactions": 0,
+            "temp_buffers": 1024,
+            "work_mem": 4096,
+            "constraint_exclusion": "partition",
+            "default_statistics_target": 100,
+            "from_collapse_limit": 8,
+            "join_collapse_limit": 8,
+            "DateStyle": "ISO, MDY",
+            "standard_conforming_strings": True,
+            "TimeZone": "UTC",
+            "bytea_output": "hex",
+            "lc_monetary": "C",
+            "lc_numeric": "C",
+            "lc_time": "C",
+            "autovacuum_analyze_scale_factor": 0.1,
+            "autovacuum_analyze_threshold": 50,
+            "autovacuum_freeze_max_age": 200000000,
+            "autovacuum_vacuum_cost_delay": 2.0,
+            "autovacuum_vacuum_scale_factor": 0.2,
+            "vacuum_freeze_table_age": 150000000,
+            "shared_buffers": "0MB",
+            "effective_cache_size": "0MB",
+        }
+        self.charm.update_config()
+        _render_patroni_yml_file.assert_called_once_with(
+            connectivity=True,
+            is_creating_backup=False,
+            enable_tls=False,
+            is_no_sync_member=False,
+            backup_id=None,
+            stanza=None,
+            restore_stanza=None,
+            parameters=parameters,
+        )
+
+        # Test when only one of the two config options for profile limit memory is set.
+        self.harness.update_config({"profile-limit-memory": 1000})
+        self.charm.update_config()
+
+        # Test when only one of the two config options for profile limit memory is set.
+        self.harness.update_config({"profile_limit_memory": 1000}, unset={"profile-limit-memory"})
+        self.charm.update_config()
+
+        # Test when the two config options for profile limit memory are set at the same time.
+        _render_patroni_yml_file.reset_mock()
+        self.harness.update_config({"profile-limit-memory": 1000})
+        with self.assertRaises(ValueError):
+            self.charm.update_config()

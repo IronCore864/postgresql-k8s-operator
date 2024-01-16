@@ -107,7 +107,9 @@ async def test_async_replication(
     logger.info("checking whether writes are increasing")
     await are_writes_increasing(ops_test)
 
-    offer_endpoint = f"{DATABASE_APP_NAME}:async-primary" if juju_major_version == 2 else "async-primary"
+    offer_endpoint = (
+        f"{DATABASE_APP_NAME}:async-primary" if juju_major_version == 2 else "async-primary"
+    )
     await first_model.create_offer(offer_endpoint, "async-primary", DATABASE_APP_NAME)
     # replace with second model fast-forward.
     await second_model.consume(

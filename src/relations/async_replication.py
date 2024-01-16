@@ -12,7 +12,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Set, Tuple, Optional
+from typing import Dict, Optional, Set, Tuple
 
 from lightkube import Client
 from lightkube.resources.core_v1 import Service
@@ -22,12 +22,19 @@ from ops.charm import (
 )
 from ops.framework import Object
 from ops.model import (
-    Unit, WaitingStatus,
+    Unit,
+    WaitingStatus,
 )
 from ops.pebble import ChangeError
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
-from constants import APP_SCOPE, USER_PASSWORD_KEY, REPLICATION_PASSWORD_KEY, PEER, WORKLOAD_OS_USER, WORKLOAD_OS_GROUP
+from constants import (
+    APP_SCOPE,
+    REPLICATION_PASSWORD_KEY,
+    USER_PASSWORD_KEY,
+    WORKLOAD_OS_GROUP,
+    WORKLOAD_OS_USER,
+)
 from coordinator_ops import CoordinatedOpsManager
 
 logger = logging.getLogger(__name__)
@@ -258,7 +265,9 @@ class PostgreSQLAsyncReplication(Object):
 
         if self.charm.unit.is_leader():
             self.charm.set_secret(APP_SCOPE, USER_PASSWORD_KEY, primary_data["superuser-password"])
-            self.charm.set_secret(APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"])
+            self.charm.set_secret(
+                APP_SCOPE, REPLICATION_PASSWORD_KEY, primary_data["replication-password"]
+            )
 
         if "system-id" not in replica_relation.data[self.charm.unit]:
             system_identifier, error = self.get_system_identifier()
@@ -296,7 +305,7 @@ class PostgreSQLAsyncReplication(Object):
         replica_relation = self.model.get_relation(ASYNC_REPLICA_RELATION)
         logger.error(f"relation data: {replica_relation.data}")
         for unit in replica_relation.units:
-            logger.error(f'Replica relation: {replica_relation.data[unit]}')
+            logger.error(f"Replica relation: {replica_relation.data[unit]}")
             if "elected" not in replica_relation.data[unit]:
                 logger.error(f"skipping {unit} 1")
                 continue
@@ -310,7 +319,8 @@ class PostgreSQLAsyncReplication(Object):
                     # Store current data in a ZIP file, clean folder and generate configuration.
                     logger.error("Creating backup of pgdata folder")
                     self.container.exec(
-                        f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()).wait_output()
+                        f"tar -zcf /var/lib/postgresql/data/pgdata-{str(datetime.now()).replace(' ', '-').replace(':', '-')}.zip /var/lib/postgresql/data/pgdata".split()
+                    ).wait_output()
                 logger.error("Removing and recreating pgdata folder")
                 self.container.exec("rm -r /var/lib/postgresql/data/pgdata".split()).wait_output()
                 self.charm._create_pgdata(self.container)
@@ -413,6 +423,7 @@ class PostgreSQLAsyncReplication(Object):
         # event.set_result()
 
     def get_system_identifier(self) -> Tuple[Optional[str], Optional[str]]:
+        """Returns the PostgreSQL system identifier from this instance."""
         try:
             system_identifier, error = self.container.exec(
                 [
@@ -427,8 +438,6 @@ class PostgreSQLAsyncReplication(Object):
         if error != "":
             return None, error
         system_identifier = [
-            line
-            for line in system_identifier.splitlines()
-            if "Database system identifier" in line
+            line for line in system_identifier.splitlines() if "Database system identifier" in line
         ][0].split(" ")[-1]
         return system_identifier, None
