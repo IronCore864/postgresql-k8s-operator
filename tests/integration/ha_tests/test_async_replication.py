@@ -75,8 +75,8 @@ async def test_deploy_async_replication_setup(
     ops_test: OpsTest, first_model: Model, second_model: Model
 ) -> None:
     """Build and deploy two PostgreSQL cluster in two separate models to test async replication."""
-    await build_and_deploy(ops_test, 2, wait_for_idle=False)
-    await build_and_deploy(ops_test, 2, wait_for_idle=False, model=second_model)
+    await build_and_deploy(ops_test, 1, wait_for_idle=False)
+    await build_and_deploy(ops_test, 1, wait_for_idle=False, model=second_model)
     await ops_test.model.deploy(APPLICATION_NAME, num_units=1)
 
     async with ops_test.fast_forward(), fast_forward(second_model):
@@ -125,6 +125,63 @@ async def test_async_replication(
 
     await second_model.relate(DATABASE_APP_NAME, "async-primary")
 
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
+        await gather(
+            first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
+            # replace with second model fast-forward.
+            second_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
+        )
+
+    logger.info("checking whether writes are increasing")
+    await are_writes_increasing(ops_test)
+
+    # Run the promote action.
+    logger.info("Get leader unit")
+    leader_unit = await get_leader_unit(ops_test, DATABASE_APP_NAME)
+    assert leader_unit is not None, "No leader unit found"
+    logger.info("promoting the first cluster")
+    run_action = await leader_unit.run_action("promote-standby-cluster")
+    await run_action.wait()
+
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
+        await gather(
+            first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
+            # replace with second model fast-forward.
+            second_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
+        )
+
+    logger.info("checking whether writes are increasing")
+    await are_writes_increasing(ops_test)
+
+    # Verify that no writes to the database were missed after stopping the writes
+    # (check that all the units have all the writes).
+    logger.info("checking whether no writes were lost")
+    await check_writes(ops_test, extra_model=second_model)
+
+
+async def test_break_and_reestablish_relation(
+    ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
+) -> None:
+    """Test that the relation can be broken and re-established."""
+    logger.info("starting continuous writes to the database")
+    await start_continuous_writes(ops_test, DATABASE_APP_NAME)
+
+    logger.info("checking whether writes are increasing")
+    await are_writes_increasing(ops_test)
+
+    logger.info("breaking the relation")
+    await second_model.applications[DATABASE_APP_NAME].remove_relation(
+        "async-replica", "async-primary"
+    )
+    async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
+        await gather(
+            first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
+            # replace with second model fast-forward.
+            second_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
+        )
+
+    logger.info("reestablishing the relation")
+    await second_model.relate(DATABASE_APP_NAME, "async-primary")
     async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
