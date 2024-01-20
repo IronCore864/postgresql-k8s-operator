@@ -192,6 +192,8 @@ class PostgreSQLAsyncReplication(Object):
                 del rel.data[self.charm.unit]["elected"]
             if "primary-cluster-ready" in rel.data[self.charm.unit]:
                 del rel.data[self.charm.unit]["primary-cluster-ready"]
+        if self.charm.unit.is_leader() and "promoted" in self.charm.app_peer_data:
+            del self.charm.app_peer_data["promoted"]
 
         for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
             with attempt:
@@ -422,6 +424,7 @@ class PostgreSQLAsyncReplication(Object):
                 "system-id": system_identifier,
             }
         )
+        self.charm.app_peer_data["promoted"] = "True"
 
         # Now, check if postgresql it had originally published its pod IP in the
         # replica relation databag. Delete it, if yes.
