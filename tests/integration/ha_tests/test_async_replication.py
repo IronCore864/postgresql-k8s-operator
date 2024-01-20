@@ -24,7 +24,7 @@ from tests.integration.helpers import (
     APPLICATION_NAME,
     DATABASE_APP_NAME,
     build_and_deploy,
-    get_leader_unit,
+    get_leader_unit, wait_for_relation_removed_between,
 )
 from tests.integration.juju_ import juju_major_version
 
@@ -75,8 +75,8 @@ async def test_deploy_async_replication_setup(
     ops_test: OpsTest, first_model: Model, second_model: Model
 ) -> None:
     """Build and deploy two PostgreSQL cluster in two separate models to test async replication."""
-    await build_and_deploy(ops_test, 1, wait_for_idle=False)
-    await build_and_deploy(ops_test, 1, wait_for_idle=False, model=second_model)
+    await build_and_deploy(ops_test, 2, wait_for_idle=False)
+    await build_and_deploy(ops_test, 2, wait_for_idle=False, model=second_model)
     await ops_test.model.deploy(APPLICATION_NAME, num_units=1)
 
     async with ops_test.fast_forward(), fast_forward(second_model):
@@ -163,6 +163,7 @@ async def test_break_and_reestablish_relation(
     ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
 ) -> None:
     """Test that the relation can be broken and re-established."""
+    # pytest.skip("Test")
     logger.info("starting continuous writes to the database")
     await start_continuous_writes(ops_test, DATABASE_APP_NAME)
 
@@ -173,6 +174,7 @@ async def test_break_and_reestablish_relation(
     await second_model.applications[DATABASE_APP_NAME].remove_relation(
         "async-replica", "async-primary"
     )
+    wait_for_relation_removed_between(ops_test, "async-primary", "async-replica", second_model)
     async with ops_test.fast_forward("60s"), fast_forward(second_model, "60s"):
         await gather(
             first_model.wait_for_idle(apps=[DATABASE_APP_NAME], status="active", idle_period=30),
@@ -289,11 +291,3 @@ async def test_async_replication_failover_in_secondary_cluster(
     # (check that all the units have all the writes).
     logger.info("checking whether no writes were lost")
     await check_writes(ops_test, extra_model=second_model)
-
-
-def test_remove_and_reestablish_relation():
-    """Test that the relation can be removed and re-established."""
-    pytest.skip("Test")
-    # Remove the relation.
-    # Re-establish the relation.
-    #

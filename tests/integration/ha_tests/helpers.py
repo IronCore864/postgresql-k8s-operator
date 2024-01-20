@@ -190,7 +190,7 @@ async def check_writes(ops_test, extra_model: Model = None) -> int:
     total_expected_writes = await stop_continuous_writes(ops_test)
     actual_writes, max_number_written = await count_writes(ops_test, extra_model=extra_model)
     for member, count in actual_writes.items():
-        print(f"checking writes for {member}: {count} (should be {max_number_written[member]})")
+        print(f"checking writes for {member}: {count} (should be {total_expected_writes})")
         assert (
             count == max_number_written[member]
         ), f"{member}: writes to the db were missed: count of actual writes different from the max number written."
@@ -277,7 +277,10 @@ async def count_writes(
         status = await model.get_status()
         for unit_name, unit in status["applications"][app]["units"].items():
             if unit_name != down_unit:
-                members.extend(get_patroni_cluster(unit["address"])["members"])
+                members_data = get_patroni_cluster(unit["address"])["members"]
+                for index, member_data in enumerate(members_data):
+                    members_data[index]["model"] = model.info.name
+                members.extend(members_data)
                 break
 
     count = {}
@@ -289,8 +292,7 @@ async def count_writes(
             host = member["host"]
 
             # Translate the service hostname to an IP address.
-            model = ops_test.model.info
-            client = Client(namespace=model.name)
+            client = Client(namespace=member["model"])
             service = client.get(Pod, name=host.split(".")[0])
             ip = service.status.podIP
 
@@ -299,12 +301,21 @@ async def count_writes(
                 f" host='{ip}' password='{password}' connect_timeout=10"
             )
 
-            with psycopg2.connect(connection_string) as connection, connection.cursor() as cursor:
-                cursor.execute("SELECT COUNT(number), MAX(number) FROM continuous_writes;")
-                results = cursor.fetchone()
-                count[member["name"]] = results[0]
-                maximum[member["name"]] = results[1]
-            connection.close()
+            member_name = f'{member["model"]}.{member["name"]}'
+            connection = None
+            try:
+                with psycopg2.connect(connection_string) as connection, connection.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(number), MAX(number) FROM continuous_writes;")
+                    results = cursor.fetchone()
+                    count[member_name] = results[0]
+                    maximum[member_name] = results[1]
+            except psycopg2.Error:
+                # Error raised when the connection is not possible.
+                count[member_name] = -1
+                maximum[member_name] = -1
+            finally:
+                if connection is not None:
+                    connection.close()
     return count, maximum
 
 

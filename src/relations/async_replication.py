@@ -134,25 +134,31 @@ class PostgreSQLAsyncReplication(Object):
     def standby_endpoints(self) -> Set[str]:
         """Returns the set of IPs used by each standby unit with a /32 mask."""
         standby_endpoints = set()
+        primary = self.charm._patroni.get_primary(unit_name_pattern=True) if self.charm._patroni.member_started else ""
         for rel in self.relation_set:
             for unit in self._all_units(rel):
-                if not rel.data[unit].get("elected", None):
+                # if not rel.data[unit].get("elected", None):
+                if unit.name != primary:
                     standby_endpoints.add("{}/32".format(str(rel.data[unit]["ingress-address"])))
                     if "pod-address" in rel.data[unit]:
                         standby_endpoints.add("{}/32".format(str(rel.data[unit]["pod-address"])))
+        logger.error(f"standby_endpoints: {standby_endpoints}")
         return standby_endpoints
 
-    def get_primary_data(self) -> Dict[str, str]:
+    def get_primary_data(self) -> Optional[Dict[str, str]]:
         """Returns the primary info, if available and if the primary cluster is ready."""
         for rel in self.relation_set:
             for unit in self._all_units(rel):
-                if "elected" in rel.data[unit] and unit.name == self.charm.unit.name:
+                app = self.model.get_app(unit.app.name)
+                if "elected" in rel.data[app] and app == self.charm.unit.app:
                     # If this unit is the leader, then return None
                     return None
-                if rel.data[unit].get("elected", None) and rel.data[unit].get(
+
+                if rel.data[app].get("elected", None) and rel.data[app].get(
                     "primary-cluster-ready", None
                 ):
-                    elected_data = json.loads(rel.data[unit]["elected"])
+                    elected_data = json.loads(rel.data[app]["elected"])
+                    logger.error(f"elected data: {elected_data}")
                     return {
                         "endpoint": str(elected_data["endpoint"]),
                         "replication-password": elected_data["replication-password"],
@@ -168,10 +174,12 @@ class PostgreSQLAsyncReplication(Object):
     def _all_replica_published_pod_ips(self) -> bool:
         for rel in self.relation_set:
             for unit in self._all_units(rel):
-                if "elected" in rel.data[unit]:
+                app = self.model.get_app(unit.app.name)
+                if "elected" in rel.data[app]:
                     # This is the leader unit, it will not publish its own pod address
                     continue
                 if "pod-address" not in rel.data[unit]:
+                    logger.error(f"pod-address not found in {unit}")
                     return False
         return True
 
@@ -184,10 +192,11 @@ class PostgreSQLAsyncReplication(Object):
                 continue
             if "pod-address" in rel.data[self.charm.unit]:
                 del rel.data[self.charm.unit]["pod-address"]
-            if "elected" in rel.data[self.charm.unit]:
-                del rel.data[self.charm.unit]["elected"]
-            if "primary-cluster-ready" in rel.data[self.charm.unit]:
-                del rel.data[self.charm.unit]["primary-cluster-ready"]
+            if self.charm.unit.is_leader():
+                if "elected" in rel.data[self.charm.app]:
+                    del rel.data[self.charm.app]["elected"]
+                if "primary-cluster-ready" in rel.data[self.charm.app]:
+                    del rel.data[self.charm.app]["primary-cluster-ready"]
 
         for attempt in Retrying(stop=stop_after_attempt(5), wait=wait_fixed(3)):
             with attempt:
@@ -231,7 +240,7 @@ class PostgreSQLAsyncReplication(Object):
         self.container.start(self.charm._postgresql_service)
 
         # Retrigger the other units' async-replica-changed
-        primary_relation.data[self.charm.unit]["primary-cluster-ready"] = "True"
+        primary_relation.data[self.charm.app]["primary-cluster-ready"] = "True"
 
     def _on_standby_changed(self, event):  # noqa C901
         """Triggers a configuration change."""
@@ -309,10 +318,11 @@ class PostgreSQLAsyncReplication(Object):
         logger.error(f"relation data: {replica_relation.data}")
         for unit in replica_relation.units:
             logger.error(f"Replica relation: {replica_relation.data[unit]}")
-            if "elected" not in replica_relation.data[unit]:
+            app = self.model.get_app(unit.app.name)
+            if "elected" not in replica_relation.data[app]:
                 logger.error(f"skipping {unit} 1")
                 continue
-            elected_data = json.loads(replica_relation.data[unit]["elected"])
+            elected_data = json.loads(replica_relation.data[app]["elected"])
             if "system-id" not in elected_data:
                 logger.error(f"skipping {unit} 2")
                 continue
@@ -362,9 +372,10 @@ class PostgreSQLAsyncReplication(Object):
             return None
         for rel in self.relation_set:
             for unit in self._all_units(rel):
-                if "elected" in rel.data[unit] and not result:
+                app = self.model.get_app(unit.app.name)
+                if "elected" in rel.data[app] and not result:
                     result = unit
-                elif "elected" in rel.data[unit] and result:
+                elif "elected" in rel.data[app] and result:
                     raise MoreThanOnePrimarySelectedError
         return result
 
@@ -409,7 +420,7 @@ class PostgreSQLAsyncReplication(Object):
 
         # If this is a standby-leader, then execute switchover logic
         # TODO
-        primary_relation.data[self.charm.unit]["elected"] = json.dumps(
+        primary_relation.data[self.charm.app]["elected"] = json.dumps(
             {
                 # "endpoint": self.charm.async_replication_endpoint,
                 "endpoint": self.endpoint,
@@ -426,6 +437,35 @@ class PostgreSQLAsyncReplication(Object):
             return
         del replica_relation.data[self.charm.unit]["pod-address"]
         # event.set_result()
+
+    def update_endpoint(self) -> None:
+        if not self._check_if_primary_already_selected():
+            return
+
+        primary_relation = self.model.get_relation(ASYNC_PRIMARY_RELATION)
+        if not primary_relation:
+            return
+
+        primary_relation.data[self.charm.app]["elected"] = json.dumps({"endpoint": self.endpoint})
+
+    def update_secrets(self) -> None:
+        if not self._check_if_primary_already_selected():
+            return
+
+        primary_relation = self.model.get_relation(ASYNC_PRIMARY_RELATION)
+        if not primary_relation:
+            return
+
+        primary_data = self.get_primary_data()
+        if not primary_data:
+            return
+
+        primary_relation.data[self.charm.app]["elected"] = json.dumps(
+            {
+                "replication-password": self.charm._patroni._replication_password,
+                "superuser-password": self.charm._patroni._superuser_password
+            }
+        )
 
     def get_system_identifier(self) -> Tuple[Optional[str], Optional[str]]:
         """Returns the PostgreSQL system identifier from this instance."""
