@@ -147,17 +147,17 @@ uvloop = ["uvloop (>=0.15.2)"]
 
 [[package]]
 name = "boto3"
-version = "1.34.19"
+version = "1.34.22"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">= 3.8"
 files = [
-    {file = "boto3-1.34.19-py3-none-any.whl", hash = "sha256:4c76ef92af7dbdcea21b196a2699671e82e8814d4cfe570c48eda477dd1aeb19"},
-    {file = "boto3-1.34.19.tar.gz", hash = "sha256:95d2c2bde86a0934d4c461020c50fc1344b444f167654e215f1de549bc77fc0f"},
+    {file = "boto3-1.34.22-py3-none-any.whl", hash = "sha256:5909cd1393143576265c692e908a9ae495492c04a0ffd4bae8578adc2e44729e"},
+    {file = "boto3-1.34.22.tar.gz", hash = "sha256:a98c0b86f6044ff8314cc2361e1ef574d674318313ab5606ccb4a6651c7a3f8c"},
 ]
 
 [package.dependencies]
-botocore = ">=1.34.19,<1.35.0"
+botocore = ">=1.34.22,<1.35.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.10.0,<0.11.0"
 
@@ -166,13 +166,13 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.34.19"
+version = "1.34.22"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">= 3.8"
 files = [
-    {file = "botocore-1.34.19-py3-none-any.whl", hash = "sha256:a4a39c7092960f5da2439efc5f6220730dab634aaff4c1444bbd1dfa43bc28cc"},
-    {file = "botocore-1.34.19.tar.gz", hash = "sha256:64352b2f05de5c6ab025c1d5232880c22775356dcc5a53d798a6f65db847e826"},
+    {file = "botocore-1.34.22-py3-none-any.whl", hash = "sha256:e5f7775975b9213507fbcf846a96b7a2aec2a44fc12a44585197b014a4ab0889"},
+    {file = "botocore-1.34.22.tar.gz", hash = "sha256:c47ba4286c576150d1b6ca6df69a87b5deff3d23bd84da8bcf8431ebac3c40ba"},
 ]
 
 [package.dependencies]
@@ -796,13 +796,13 @@ files = [
 
 [[package]]
 name = "jsonschema"
-version = "4.20.0"
+version = "4.21.0"
 description = "An implementation of JSON Schema validation for Python"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "jsonschema-4.20.0-py3-none-any.whl", hash = "sha256:ed6231f0429ecf966f5bc8dfef245998220549cbbcf140f913b7464c52c3b6b3"},
-    {file = "jsonschema-4.20.0.tar.gz", hash = "sha256:4f614fd46d8d61258610998997743ec5492a648b33cf478c1ddc23ed4598a5fa"},
+    {file = "jsonschema-4.21.0-py3-none-any.whl", hash = "sha256:70a09719d375c0a2874571b363c8a24be7df8071b80c9aa76bc4551e7297c63c"},
+    {file = "jsonschema-4.21.0.tar.gz", hash = "sha256:3ba18e27f7491ea4a1b22edce00fb820eec968d397feb3f9cb61d5894bb38167"},
 ]
 
 [package.dependencies]
@@ -1560,8 +1560,8 @@ develop = false
 [package.source]
 type = "git"
 url = "https://github.com/canonical/data-platform-workflows"
-reference = "v9.0.2"
-resolved_reference = "1f7cb3eac6fc12c926330a22bd5715f9d0fbac5e"
+reference = "v9.3.1"
+resolved_reference = "f4f3ed58baa025f4a92f945985c42f1cace063b9"
 subdirectory = "python/pytest_plugins/github_secrets"
 
 [[package]]
@@ -1583,13 +1583,13 @@ dev = ["pre-commit", "pytest-asyncio", "tox"]
 
 [[package]]
 name = "pytest-operator"
-version = "0.31.1"
+version = "0.32.0"
 description = "Fixtures for Operators"
 optional = false
 python-versions = "*"
 files = [
-    {file = "pytest-operator-0.31.1.tar.gz", hash = "sha256:83a5c5a2ec781eeea97e678b777cf3469e4502fc07ff8b1b8b0f9b160cff4d32"},
-    {file = "pytest_operator-0.31.1-py3-none-any.whl", hash = "sha256:103fd6a2dfe66c7d8f317359ca0f10bd9b3a8483581d9351e5e96aff1d4e8349"},
+    {file = "pytest-operator-0.32.0.tar.gz", hash = "sha256:9e7b3b1384118110654f86bb6aaf772d29c6f38aec05492707ad09beff7b645b"},
+    {file = "pytest_operator-0.32.0-py3-none-any.whl", hash = "sha256:a03efd6e3aea5f5c7395ef64c45d6d1719fde61f8593804dc5c8ffff561ecfd4"},
 ]
 
 [package.dependencies]
@@ -1615,8 +1615,8 @@ pyyaml = "*"
 [package.source]
 type = "git"
 url = "https://github.com/canonical/data-platform-workflows"
-reference = "v9.0.2"
-resolved_reference = "1f7cb3eac6fc12c926330a22bd5715f9d0fbac5e"
+reference = "v9.3.1"
+resolved_reference = "f4f3ed58baa025f4a92f945985c42f1cace063b9"
 subdirectory = "python/pytest_plugins/pytest_operator_cache"
 
 [[package]]
@@ -1634,8 +1634,8 @@ pytest = "*"
 [package.source]
 type = "git"
 url = "https://github.com/canonical/data-platform-workflows"
-reference = "v9.0.2"
-resolved_reference = "1f7cb3eac6fc12c926330a22bd5715f9d0fbac5e"
+reference = "v9.3.1"
+resolved_reference = "f4f3ed58baa025f4a92f945985c42f1cace063b9"
 subdirectory = "python/pytest_plugins/pytest_operator_groups"
 
 [[package]]
@@ -1688,6 +1688,7 @@ files = [
     {file = "PyYAML-6.0.1-cp311-cp311-win_amd64.whl", hash = "sha256:bf07ee2fef7014951eeb99f56f39c9bb4af143d8aa3c21b1677805985307da34"},
     {file = "PyYAML-6.0.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:855fb52b0dc35af121542a76b9a84f8d1cd886ea97c84703eaa6d88e37a2ad28"},
     {file = "PyYAML-6.0.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:40df9b996c2b73138957fe23a16a4f0ba614f4c0efce1e9406a184b6d07fa3a9"},
+    {file = "PyYAML-6.0.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a08c6f0fe150303c1c6b71ebcd7213c2858041a7e01975da3a99aed1e7a378ef"},
     {file = "PyYAML-6.0.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6c22bec3fbe2524cde73d7ada88f6566758a8f7227bfbf93a408a9d86bcc12a0"},
     {file = "PyYAML-6.0.1-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:8d4e9c88387b0f5c7d5f281e55304de64cf7f9c0021a3525bd3b1c542da3b0e4"},
     {file = "PyYAML-6.0.1-cp312-cp312-win32.whl", hash = "sha256:d483d2cdf104e7c9fa60c544d92981f12ad66a457afae824d146093b8c294c54"},
@@ -2187,4 +2188,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "bc2e1753bf9d06ae412cb231127e7e77b0762f7517a855baf0ef056ffb46d029"
+content-hash = "98bceb6abf41fb24a8b6735a015dc72080453990cd2c88e1c0a36102cb3f9241"
