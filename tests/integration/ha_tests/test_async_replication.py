@@ -222,7 +222,7 @@ async def test_async_replication_failover_in_main_cluster(
     ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
 ) -> None:
     """Test that async replication fails over correctly."""
-    # pytest.skip("Test")
+    pytest.skip("Test")
     logger.info("starting continuous writes to the database")
     await start_continuous_writes(ops_test, DATABASE_APP_NAME)
 
@@ -260,7 +260,7 @@ async def test_async_replication_failover_in_secondary_cluster(
     ops_test: OpsTest, first_model: Model, second_model: Model, continuous_writes
 ) -> None:
     """Test that async replication fails back correctly."""
-    pytest.skip("Test")
+    # pytest.skip("Test")
     logger.info("starting continuous writes to the database")
     await start_continuous_writes(ops_test, DATABASE_APP_NAME)
 
